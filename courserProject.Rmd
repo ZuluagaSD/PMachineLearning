@@ -1,0 +1,138 @@
+---
+title: "Practical Machine Learning - Prediction Assignment Writeup"
+output: html_document
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### First lets load the required libraries:
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rattle)
+library(randomForest)
+```
+
+#### Download the data if we dont have it already:
+
+```{r}
+rm(list = ls())
+if (!file.exists("pml-training.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+}
+if (!file.exists("pml-testing.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+}
+training  <- read.csv("pml-training.csv", sep = ",", na.strings = c("", "NA"))
+testing  <- read.csv("pml-testing.csv", sep = ",", na.strings = c("", "NA"))
+```
+
+### Split the training set:
+
+We are going to split the training data set into two data sets, 60% for training and 40% for testing.
+
+```{r}
+set.seed(98765)
+inTrain <- createDataPartition(y=training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+dim(myTraining); dim(myTesting)
+```
+
+### Data cleaning:
+
+Lets see what NZV features do we have and remove them.
+
+```{r}
+myDataNZV <- nearZeroVar(myTraining, saveMetrics=TRUE)
+```
+
+```{r}
+myNZVvars <- names(myTraining) %in% rownames(myDataNZV[myDataNZV$nzv == "TRUE", ])
+myTraining <- myTraining[!myNZVvars]
+myTraining <- myTraining[c(-1)]
+dim(myTraining)
+```
+
+Now lets remove the features that have more than 60% NAs values.
+
+```{r}
+trainingV3 <- myTraining
+for(i in 1:length(myTraining)) { 
+        if( sum( is.na(myTraining[, i] ) ) / nrow(myTraining) >= .6 ) { 
+        for(j in 1:length(trainingV3)) {
+            if( length(grep(names(myTraining[i]), names(trainingV3)[j]) ) == 1) {
+                trainingV3 <- trainingV3[ , -j]
+            }   
+        } 
+    }
+}
+
+myTraining <- trainingV3
+dim(myTraining)
+```
+
+```{r, include=FALSE}
+clean1 <- colnames(myTraining)
+clean2 <- colnames(myTraining[, -58]) 
+myTesting <- myTesting[clean1]
+testing <- testing[clean2]
+
+dim(myTesting)
+```
+
+```{r, include=FALSE}
+for (i in 1:length(testing) ) {
+        for(j in 1:length(myTraining)) {
+        if( length( grep(names(myTraining[i]), names(testing)[j]) ) == 1)  {
+            class(testing[j]) <- class(myTraining[i])
+        }      
+    }      
+}
+#And to make sure Coertion really worked, simple smart ass technique:
+testing <- rbind(myTraining[2, -58] , testing) #note row 2 does not mean anything, this will be removed right.. now:
+testing <- testing[-1,]
+```
+
+### Machine learning, Decision Tree:
+
+Lets try to predict the diferent types of exercises with a simple decision tree.
+
+```{r}
+modFitA1 <- rpart(classe ~ ., data=myTraining, method="class")
+```
+
+This is what the decision tree looks like:
+
+```{r}
+fancyRpartPlot(modFitA1)
+```
+
+And lets see the results we got:
+
+```{r}
+predictionsA1 <- predict(modFitA1, myTesting, type = "class")
+confusionMatrix(predictionsA1, myTesting$classe)
+```
+
+Now lets predict with 500 trees using the default randomForest function:
+
+```{r}
+modFitB1 <- randomForest(classe ~. , data=myTraining)
+predictionsB1 <- predict(modFitB1, myTesting, type = "class")
+```
+
+And lets see the results obtained with randomForest:
+
+```{r}
+confusionMatrix(predictionsB1, myTesting$classe)
+```
+
+And we got 99% accuracy!
